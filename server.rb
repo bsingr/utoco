@@ -22,11 +22,12 @@ get "/:format/:video_id" do
   url = "http://www.youtube.com/watch?v=#{video_id}"
   begin
 		fetch_ingoing :url => url do |ingoing_file|
-		  convert :ingoing_file => ingoing_file, :format => params[:format] do |outgoing_file|
+		  convert({:ingoing_file => ingoing_file, :format => params[:format]}) do |outgoing_file|
 		    redirect "/#{outgoing_file}"
 		  end
 	  end
 	rescue => e
+		puts e.to_s
     e.to_s
   end
 end
@@ -34,23 +35,20 @@ end
 helpers do
 	def fetch_ingoing(opts = {:url => nil})
 		raise ArgumentError "No url given" unless opts[:url]
-		IO.popen "./vendor/youtube-dl/youtube-dl -i -o '#{TMP_DIR_INGOING_FILES}/%(stitle)s.%(ext)s' #{opts[:url]}" do |io|
+	  fetch_command =  "./vendor/youtube-dl/youtube-dl -i -o '#{TMP_DIR_INGOING_FILES}/%(stitle)s.%(ext)s' #{opts[:url]}"
+	  puts "PROCESSING: #{fetch_command}"
+		IO.popen(fetch_command) do |io|
 			ingoing_file = nil
-			error = nil
-			io.each_line do |line|
+			io.each do |line|
 				puts "Progress: #{line}"
 				if match = line.chomp.match(/.download. Destination: (.*)/)
 					ingoing_file = match.captures.first
-				elsif match = line.chomp.match(/ERROR: (.*)/)
-					error = "Could not fetch ingoing file: #{match.captures.to_s}"
 				end
 			end
-			if error
-				raise error
-			elsif ingoing_file
+			if ingoing_file
 			  yield(ingoing_file)
 			else
-				raise "Could not detect the name of the ingoing file"
+				raise "Could not fetch ingoing file"
 			end
 		end
   rescue => e
@@ -58,8 +56,8 @@ helpers do
 	end
 
 	def convert(opts = {:ingoing_file => nil, :format => "mp3"})
-	  raise ArgumentError "No ingoing file given" unless opts[:ingoing_file]
-		raise ArgumentError "No format given" unless opts[:format]
+	  raise ArgumentError, "No ingoing file given" unless opts[:ingoing_file]
+		raise ArgumentError,"No format given" unless opts[:format]
 		
 		filename = File.basename(opts[:ingoing_file]).sub(File.extname(opts[:ingoing_file]))
 	  outgoing_file = "#{TMP_DIR_OUTGOING_FILES}/}.#{format.to_s}"
@@ -67,15 +65,16 @@ helpers do
 	  case opts[:format]
 	  when "mp3"
 			IO.popen "ffmpeg -ab 192k -i #{ingoing_file} #{outgoing_file}" do |io|
-				io.each_line do |line|
+				io.each do |line|
 					puts "Progress: #{line}"
 				end
 				yield(outgoing_file)
 			end
 		else
-	    raise ArgumentError "Unsupported format: '#{opts[:format]}'"
+	    raise ArgumentError, "Unsupported format: '#{opts[:format]}'"
 	  end
 	rescue => e
+		puts e.backtrace
 		raise "Converting ingoing file failed: #{e}"
 	end
 end
